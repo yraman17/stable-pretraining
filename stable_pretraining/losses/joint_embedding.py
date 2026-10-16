@@ -39,6 +39,86 @@ class BYOLLoss(torch.nn.Module):
         return loss.mean()
 
 
+class MECLoss(torch.nn.Module):
+    """Maximum Entropy Coding objective used in MEC :cite:`liu2022self`.
+
+    Maximizes the coding length ``log det(I + λ C)`` of the batch-wise
+    cross-view correlation ``C = P Zᵀ`` between L2-normalized online
+    predictions ``P`` and target projections ``Z``, with ``λ = d / (m ε)``.
+    The log-determinant is approximated by a truncated Taylor expansion of
+    the matrix logarithm, ``tr(Σ_{k=1}^{order} (-1)^{k+1} / k · (λC)^k)``.
+
+    Args:
+        eps (float, optional): Distortion ``ε`` of the lossy coding. Larger
+            values shrink ``λ`` and keep the Taylor expansion convergent.
+            Default is 64.
+        order (int, optional): Number of Taylor expansion terms. Default is 4.
+    """
+
+    def __init__(self, eps: float = 64.0, order: int = 4):
+        super().__init__()
+        if order < 1:
+            raise ValueError(f"order must be >= 1, got {order}")
+        self.eps = eps
+        self.order = order
+
+    def lambda_inv(self, batch_size: int, dim: int) -> float:
+        """Return ``1 / λ = m ε / d`` for a global batch size ``m`` and dim ``d``.
+
+        Args:
+            batch_size: Global batch size ``m`` (summed over all ranks).
+            dim: Embedding dimension ``d``.
+
+        Returns:
+            float: The inverse scaling factor ``1 / λ``.
+        """
+        return batch_size * self.eps / dim
+
+    def forward(
+        self,
+        online_pred: torch.Tensor,
+        target_proj: torch.Tensor,
+        lambda_inv_scale: float = 1.0,
+    ) -> torch.Tensor:
+        """Compute the one-directional MEC loss.
+
+        Args:
+            online_pred: Predictions from the online network, shape ``[N, D]``.
+            target_proj: Projections from the target network, shape ``[N, D]``
+                (expected to carry no gradient).
+            lambda_inv_scale: Multiplier on ``1 / λ``. Values above 1 shrink
+                ``λC`` early in training so the Taylor expansion converges;
+                the reference implementation warms this from 8 down to 1.
+                Default is 1.
+
+        Returns:
+            torch.Tensor: Scalar loss ``-(1/λ) · tr(log(I + λC)) / m``.
+
+        Note:
+            Under DDP both inputs are gathered from every rank, so ``m`` is the
+            global batch size and every rank computes the same loss.
+        """
+        online_pred = torch.cat(all_gather(online_pred), dim=0)
+        target_proj = torch.cat(all_gather(target_proj), dim=0)
+        batch_size, dim = online_pred.shape
+
+        # The alternating power series cancels large terms, so bf16/fp16
+        # autocast matmuls lose too much precision; compute in fp32.
+        online_pred = F.normalize(online_pred.float(), dim=-1)
+        target_proj = F.normalize(target_proj.float(), dim=-1)
+
+        lambda_inv = self.lambda_inv(batch_size, dim) * lambda_inv_scale
+        c = (online_pred @ target_proj.T) / lambda_inv
+
+        power = c
+        series = c
+        for k in range(2, self.order + 1):
+            power = power @ c
+            series = series + ((-1) ** (k + 1) / k) * power
+
+        return -lambda_inv * torch.trace(series) / batch_size
+
+
 class VICRegLoss(torch.nn.Module):
     """SSL objective used in VICReg :cite:`bardes2021vicreg`.
 

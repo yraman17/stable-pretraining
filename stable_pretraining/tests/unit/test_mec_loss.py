@@ -27,6 +27,7 @@ class TestMECLoss:
         loss_fn = MECLoss(eps=32.0, order=3)
         assert loss_fn.eps == 32.0
         assert loss_fn.order == 3
+        assert loss_fn.symmetric is False
 
     def test_invalid_order_raises(self):
         with pytest.raises(ValueError, match="order must be >= 1"):
@@ -113,3 +114,64 @@ class TestMECLoss:
 
         assert loss_bf16.dtype == torch.float32
         assert torch.allclose(loss_bf16, loss_fn(p, z), atol=1e-2)
+
+    def test_autocast_does_not_downcast_series(self):
+        """Mixed-precision training must not run the Taylor series in bf16."""
+        torch.manual_seed(0)
+        p = torch.randn(64, 32)
+        z = p + 0.5 * torch.randn_like(p)
+        loss_fn = MECLoss()
+        with torch.autocast("cpu", dtype=torch.bfloat16):
+            loss_autocast = loss_fn(p, z)
+
+        assert loss_autocast.dtype == torch.float32
+        torch.testing.assert_close(loss_autocast, loss_fn(p, z))
+
+    def test_symmetric_matches_plain_when_c_is_symmetric(self):
+        torch.manual_seed(0)
+        z = torch.randn(32, 16)
+        torch.testing.assert_close(
+            MECLoss(symmetric=True)(z, z), MECLoss(symmetric=False)(z, z)
+        )
+
+    def test_symmetric_uses_symmetrized_correlation(self):
+        torch.manual_seed(0)
+        p, z = torch.randn(32, 16), torch.randn(32, 16)
+        loss_fn = MECLoss(symmetric=True)
+        lambda_inv = loss_fn.lambda_inv(32, 16)
+
+        c = F.normalize(p, dim=1) @ F.normalize(z, dim=1).T
+        c = (c + c.T) / 2 / lambda_inv
+        expected = (
+            -lambda_inv
+            * torch.trace(c - c @ c / 2 + c @ c @ c / 3 - c @ c @ c @ c / 4)
+            / 32
+        )
+        torch.testing.assert_close(loss_fn(p, z), expected)
+
+    @pytest.mark.parametrize("angle", [torch.pi / 8, torch.pi / 4])
+    def test_symmetric_resists_rotation_exploit(self, angle):
+        """Collapsed features plus a rotating predictor game the plain loss.
+
+        Targets use only 2 dimensions and predictions are those targets
+        rotated in that plane, so ``C`` has large complex eigenvalues on which
+        the truncated series rewards collapse past the bound that holds for
+        real eigenvalues (each order-4 term is at most 7/12). The symmetrized
+        loss respects the bound and penalizes the same configuration.
+        """
+        m, d = 64, 16
+        z = torch.zeros(m, d)
+        z[::2, 0] = 1
+        z[1::2, 1] = 1
+        cos, sin = torch.tensor(angle).cos(), torch.tensor(angle).sin()
+        rotation = torch.eye(d)
+        rotation[:2, :2] = torch.stack(
+            [torch.stack([cos, -sin]), torch.stack([sin, cos])]
+        )
+        p = z @ rotation.T
+
+        plain, symmetric = MECLoss(eps=1.0), MECLoss(eps=1.0, symmetric=True)
+        bound = -plain.lambda_inv(m, d) * (7 / 12) * min(m, d) / m
+
+        assert plain(p, z) < bound
+        assert symmetric(p, z) > 0

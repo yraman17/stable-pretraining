@@ -206,6 +206,9 @@ MEC
   only aligning views
 - Optional ``1/λ`` warm-up via ``mec_warmup_epochs`` keeps the Taylor
   expansion convergent early in training
+- ``MECLoss(symmetric=True)`` symmetrizes the cross-correlation, which
+  prevents a collapse we observed with the paper's objective at small scale
+  (CIFAR-10, ResNet-18, batch 256); see ``benchmarks/cifar10/MEC_RESULTS.md``
 
 **Example Config:**
 
@@ -220,6 +223,7 @@ MEC
         _target_: stable_pretraining.losses.MECLoss
         eps: 64.0
         order: 4
+        symmetric: false  # true recommended for small-scale training
       mec_warmup_epochs: 10
 
 VICReg

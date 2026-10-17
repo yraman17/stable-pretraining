@@ -128,6 +128,10 @@ class TestMECMethod:
         expected_entropy = -output.loss.detach() * (4 + 16) / 2 / lambda_inv
         torch.testing.assert_close(output.entropy, expected_entropy)
 
+    @pytest.mark.parametrize("symmetric", [False, True])
+    def test_symmetric_option_reaches_loss(self, symmetric):
+        assert _tiny_mec(symmetric=symmetric).mec_loss.symmetric is symmetric
+
     def test_warmup_changes_loss(self):
         """The 8x warm-up at epoch 0 must actually reach the loss."""
         v1, v2 = torch.randn(4, 3, 32, 32), torch.randn(4, 3, 32, 32)

@@ -117,7 +117,9 @@ module = spt.Module(
     projector=wrapped_projector,
     predictor=predictor,
     forward=mec,
-    mec_loss=spt.losses.MECLoss(eps=64.0, order=4),
+    # The paper's (unsymmetrized) objective collapses at CIFAR-10 scale; see
+    # MEC_RESULTS.md.
+    mec_loss=spt.losses.MECLoss(eps=64.0, order=4, symmetric=True),
     mec_warmup_epochs=10,
     mec_warmup_lambda_scale=8.0,
     optim={

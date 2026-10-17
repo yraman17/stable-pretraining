@@ -53,14 +53,28 @@ class MECLoss(torch.nn.Module):
             values shrink ``λ`` and keep the Taylor expansion convergent.
             Default is 64.
         order (int, optional): Number of Taylor expansion terms. Default is 4.
+        symmetric (bool, optional): Use ``(C + Cᵀ) / 2`` instead of ``C``.
+            ``C`` is not symmetric, so it can have complex eigenvalues on
+            which the truncated series is unbounded below; the online network
+            can exploit this to drive the loss to ``-∞`` while its features
+            collapse. Symmetrizing keeps the eigenvalues real, where (for
+            even ``order``) each eigenvalue's term is bounded above.
+            Default is False, as in the paper.
+
+    Note:
+        With ``symmetric=False`` (the paper's objective) we observed this
+        collapse on CIFAR-10 with ResNet-18 at batch size 256, regardless of
+        learning rate, batch size or warm-up length; ``symmetric=True`` trains
+        stably there. See ``benchmarks/cifar10/MEC_RESULTS.md``.
     """
 
-    def __init__(self, eps: float = 64.0, order: int = 4):
+    def __init__(self, eps: float = 64.0, order: int = 4, symmetric: bool = False):
         super().__init__()
         if order < 1:
             raise ValueError(f"order must be >= 1, got {order}")
         self.eps = eps
         self.order = order
+        self.symmetric = symmetric
 
     def lambda_inv(self, batch_size: int, dim: int) -> float:
         """Return ``1 / λ = m ε / d`` for a global batch size ``m`` and dim ``d``.
@@ -102,21 +116,25 @@ class MECLoss(torch.nn.Module):
         target_proj = torch.cat(all_gather(target_proj), dim=0)
         batch_size, dim = online_pred.shape
 
-        # The alternating power series cancels large terms, so bf16/fp16
-        # autocast matmuls lose too much precision; compute in fp32.
-        online_pred = F.normalize(online_pred.float(), dim=-1)
-        target_proj = F.normalize(target_proj.float(), dim=-1)
+        # The alternating power series cancels large terms, so compute in fp32
+        # with autocast off (it would otherwise run the matmuls in bf16/fp16).
+        with torch.autocast(device_type=online_pred.device.type, enabled=False):
+            online_pred = F.normalize(online_pred.float(), dim=-1)
+            target_proj = F.normalize(target_proj.float(), dim=-1)
 
-        lambda_inv = self.lambda_inv(batch_size, dim) * lambda_inv_scale
-        c = (online_pred @ target_proj.T) / lambda_inv
+            lambda_inv = self.lambda_inv(batch_size, dim) * lambda_inv_scale
+            c = online_pred @ target_proj.T
+            if self.symmetric:
+                c = (c + c.T) / 2
+            c = c / lambda_inv
 
-        power = c
-        series = c
-        for k in range(2, self.order + 1):
-            power = power @ c
-            series = series + ((-1) ** (k + 1) / k) * power
+            power = c
+            series = c
+            for k in range(2, self.order + 1):
+                power = power @ c
+                series = series + ((-1) ** (k + 1) / k) * power
 
-        return -lambda_inv * torch.trace(series) / batch_size
+            return -lambda_inv * torch.trace(series) / batch_size
 
 
 class VICRegLoss(torch.nn.Module):

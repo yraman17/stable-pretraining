@@ -393,12 +393,8 @@ def mec(self, batch: dict[str, Any], stage: str) -> dict[str, torch.Tensor]:
             - projector: TeacherStudentWrapper for projection head
             - predictor: Online network predictor
             - mec_loss: MEC loss function (e.g., spt.losses.MECLoss())
-            Optional attributes:
-            - mec_warmup_epochs (int): Epochs over which ``1/λ`` is linearly
-              decayed from ``mec_warmup_lambda_scale / λ`` to ``1/λ``
-              (default 0, no warm-up)
-            - mec_warmup_lambda_scale (float): Starting multiplier on ``1/λ``
-              (default 8.0)
+            - mec_warmup_epochs (int, optional): ``1/λ`` warm-up epochs (default 0)
+            - mec_warmup_lambda_scale (float, optional): Warm-up start (default 8.0)
         batch: Either a list of view dicts (from MultiViewTransform) or
             a single dict (for validation/single-view)
         stage: Training stage ('train', 'val', or 'test')
@@ -410,10 +406,12 @@ def mec(self, batch: dict[str, Any], stage: str) -> dict[str, torch.Tensor]:
             - 'label': Labels if present (for probes/callbacks)
 
     Note:
-        Introduced in the MEC paper :cite:`liu2022self`. The reference
-        implementation warms ``1/λ`` from 8x down to 1x over 10 epochs to keep
-        the Taylor expansion convergent; set ``mec_warmup_epochs=10`` to match.
-        The warm-up here steps once per epoch rather than once per iteration.
+        Introduced in the MEC paper :cite:`liu2022self`. During the warm-up,
+        ``1/λ`` decays linearly from ``mec_warmup_lambda_scale / λ`` to
+        ``1/λ``. The reference implementation warms from 8x down to 1x over 10
+        epochs to keep the Taylor expansion convergent; set
+        ``mec_warmup_epochs=10`` to match. The warm-up here steps once per
+        epoch rather than once per iteration.
 
     Example:
         ::

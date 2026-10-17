@@ -75,6 +75,9 @@ class MEC(Module):
     :param predictor_hidden_dim: Predictor bottleneck dim (default 512).
     :param eps: Coding distortion ``ε``; ``1/λ = m ε / d`` (default 64).
     :param taylor_order: Taylor expansion terms for ``log det`` (default 4).
+    :param symmetric: Symmetrize the cross-correlation ``C`` so the Taylor
+        series stays bounded; see :class:`~stable_pretraining.losses.MECLoss`.
+        Recommended for small-scale training (default False, as in the paper).
     :param warmup_epochs: Epochs over which ``1/λ`` decays linearly from
         ``warmup_lambda_scale / λ`` to ``1/λ`` (default 10).
     :param warmup_lambda_scale: Starting multiplier on ``1/λ`` (default 8).
@@ -98,6 +101,7 @@ class MEC(Module):
         predictor_hidden_dim: int = 512,
         eps: float = 64.0,
         taylor_order: int = 4,
+        symmetric: bool = False,
         warmup_epochs: int = 10,
         warmup_lambda_scale: float = 8.0,
         ema_decay_start: float = 0.996,
@@ -134,7 +138,7 @@ class MEC(Module):
             final_ema_coefficient=ema_decay_end,
         )
         self.predictor = _predictor(projector_dim, predictor_hidden_dim)
-        self.mec_loss = MECLoss(eps=eps, order=taylor_order)
+        self.mec_loss = MECLoss(eps=eps, order=taylor_order, symmetric=symmetric)
         self.warmup_epochs = warmup_epochs
         self.warmup_lambda_scale = warmup_lambda_scale
 

@@ -65,7 +65,7 @@ class MECLoss(torch.nn.Module):
         With ``symmetric=False`` (the paper's objective) we observed this
         collapse on CIFAR-10 with ResNet-18 at batch size 256, regardless of
         learning rate, batch size or warm-up length; ``symmetric=True`` trains
-        stably there. See ``benchmarks/cifar10/MEC_RESULTS.md``.
+        stably there.
     """
 
     def __init__(self, eps: float = 64.0, order: int = 4, symmetric: bool = False):

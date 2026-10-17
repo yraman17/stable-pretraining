@@ -11,8 +11,7 @@ Unreleased
   2022). Includes ``MECLoss``, the ``mec`` forward function, and the
   reference ``1/λ`` warm-up. ``MECLoss(symmetric=True)`` adds an optional
   symmetrized cross-correlation that avoids a collapse of the paper's
-  objective at small scale (CIFAR-10 results in
-  ``benchmarks/cifar10/MEC_RESULTS.md``). Registered in
+  objective at small scale (observed on CIFAR-10). Registered in
   ``stable_pretraining.methods``, the top-level namespace, and ``METHODS.md``.
 - ``PMSN`` (Prior Matching for Siamese Networks): extends ``MSN`` by replacing
   its uniform-prior mean-entropy regulariser with a KL-divergence term against

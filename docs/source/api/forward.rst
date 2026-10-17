@@ -208,7 +208,7 @@ MEC
   expansion convergent early in training
 - ``MECLoss(symmetric=True)`` symmetrizes the cross-correlation, which
   prevents a collapse we observed with the paper's objective at small scale
-  (CIFAR-10, ResNet-18, batch 256); see ``benchmarks/cifar10/MEC_RESULTS.md``
+  (CIFAR-10, ResNet-18, batch 256)
 
 **Example Config:**
 
